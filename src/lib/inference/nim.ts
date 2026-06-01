@@ -96,8 +96,18 @@ export interface DetectGpuDeps {
 function defaultArm64WslDockerDesktopGpuProver(): Arm64WslDockerDesktopGpuProver | null {
   try {
     return require("../onboard/wsl-docker-desktop-gpu").createArm64WslDockerDesktopGpuProver();
-  } catch {
-    return null;
+  } catch (error) {
+    // Only the optional module-resolution case should degrade to "no prover";
+    // a real bug inside the prover module must bubble up rather than masquerade
+    // as a missing GPU on an otherwise-supported N1X host.
+    if (
+      error &&
+      typeof error === "object" &&
+      (error as NodeJS.ErrnoException).code === "MODULE_NOT_FOUND"
+    ) {
+      return null;
+    }
+    throw error;
   }
 }
 
