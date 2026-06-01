@@ -2,9 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-
+import {
+  getSandboxStatusInferenceHealth,
+  sandboxGpuProofStatusSuffix,
+  sandboxGpuProofUnverified,
+} from "../../../../dist/lib/actions/sandbox/status";
 import type { ProviderHealthProbeOptions } from "../../../../dist/lib/inference/health";
-import { getSandboxStatusInferenceHealth } from "../../../../dist/lib/actions/sandbox/status";
 
 describe("sandbox status inference health", () => {
   it("passes the current model with the current provider", () => {
@@ -48,5 +51,40 @@ describe("sandbox status inference health", () => {
 
     expect(result).toBeNull();
     expect(called).toBe(false);
+  });
+});
+
+describe("sandbox GPU proof status rendering (#4231)", () => {
+  it("does not call an unproven GPU healthy", () => {
+    expect(sandboxGpuProofUnverified(null)).toBe(true);
+    expect(sandboxGpuProofUnverified(undefined)).toBe(true);
+    expect(
+      sandboxGpuProofUnverified({ status: "unverified", cudaVerified: false, at: "t" }),
+    ).toBe(true);
+    expect(
+      sandboxGpuProofUnverified({ status: "verified", cudaVerified: true, at: "t" }),
+    ).toBe(false);
+    expect(
+      sandboxGpuProofUnverified({ status: "failed", cudaVerified: false, at: "t" }),
+    ).toBe(false);
+  });
+
+  it("renders verified / unverified / failed suffixes distinctly", () => {
+    expect(
+      sandboxGpuProofStatusSuffix({ status: "verified", cudaVerified: true, at: "t" }),
+    ).toContain("CUDA verified");
+    // No recorded proof (older entries) must not read as healthy.
+    expect(sandboxGpuProofStatusSuffix(null)).toContain("CUDA unverified");
+    expect(
+      sandboxGpuProofStatusSuffix({ status: "unverified", cudaVerified: false, at: "t" }),
+    ).toContain("CUDA unverified");
+    const failed = sandboxGpuProofStatusSuffix({
+      status: "failed",
+      cudaVerified: false,
+      label: "cuInit(0)",
+      at: "t",
+    });
+    expect(failed).toContain("last CUDA proof failed");
+    expect(failed).toContain("cuInit(0)");
   });
 });

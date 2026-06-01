@@ -3749,7 +3749,7 @@ async function createSandbox(
 
   if (effectiveSandboxGpuConfig.sandboxGpuEnabled) {
     try {
-      verifyDirectSandboxGpu(sandboxName);
+      effectiveSandboxGpuConfig.sandboxGpuProof = verifyDirectSandboxGpu(sandboxName);
     } catch (error) {
       dockerGpuPatch.printDockerGpuProofFailure(
         sandboxName,

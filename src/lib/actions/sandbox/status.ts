@@ -27,6 +27,7 @@ import * as shields from "../../shields";
 import { parseSandboxPhase } from "../../state/gateway";
 import type { Session } from "../../state/onboard-session";
 import * as onboardSession from "../../state/onboard-session";
+import type { SandboxGpuProofResult } from "../../state/registry";
 import * as registry from "../../state/registry";
 import {
   createSystemDeps as createSessionDeps,
@@ -50,6 +51,29 @@ type ProbeProviderHealth = (
   provider: string,
   options?: ProviderHealthProbeOptions,
 ) => ProviderHealthStatus | null;
+
+// True when sandbox GPU is enabled but no CUDA-usability proof has confirmed it
+// (older entries with no recorded proof, or a run whose CUDA proof could not
+// execute). Treated as not-yet-proven rather than healthy (#4231).
+export function sandboxGpuProofUnverified(
+  proof: SandboxGpuProofResult | null | undefined,
+): boolean {
+  return !proof || proof.status === "unverified";
+}
+
+// Render the proof-state suffix appended to the `Sandbox GPU: enabled` line so
+// the status reflects verified/unverified/failed CUDA usability instead of
+// reporting any configured GPU as healthy (#4231).
+export function sandboxGpuProofStatusSuffix(
+  proof: SandboxGpuProofResult | null | undefined,
+): string {
+  if (proof?.status === "verified") return ` ${G}(CUDA verified)${R}`;
+  if (proof?.status === "failed") {
+    const label = proof.label ? `: ${proof.label}` : "";
+    return ` ${RD}(last CUDA proof failed${label})${R}`;
+  }
+  return ` ${YW}(CUDA unverified)${R}`;
+}
 
 export function getSandboxStatusInferenceHealth(
   gatewayPresent: boolean,
@@ -77,6 +101,7 @@ export interface SandboxStatusReport {
   sandboxGpuEnabled: boolean;
   sandboxGpuMode: string | null;
   sandboxGpuDevice: string | null;
+  sandboxGpuProof: SandboxGpuProofResult | null;
   openshellDriver: string;
   openshellVersion: string;
   policies: string[];
@@ -185,6 +210,7 @@ export async function getSandboxStatusReport(
     sandboxGpuEnabled,
     sandboxGpuMode: (sb && sb.sandboxGpuMode) || null,
     sandboxGpuDevice: (sb && sb.sandboxGpuDevice) || null,
+    sandboxGpuProof: (sb && sb.sandboxGpuProof) || null,
     openshellDriver: (sb && sb.openshellDriver) || "unknown",
     openshellVersion: (sb && sb.openshellVersion) || "unknown",
     policies,
@@ -275,10 +301,26 @@ export async function showSandboxStatus(sandboxName: string): Promise<void> {
     const sandboxGpu = sandboxGpuEnabled ? "enabled" : "disabled";
     const sandboxGpuMode = sb.sandboxGpuMode ? ` (${sb.sandboxGpuMode})` : "";
     const sandboxGpuDevice = sb.sandboxGpuDevice ? ` device=${sb.sandboxGpuDevice}` : "";
+    const sandboxGpuProofSuffix = sandboxGpuEnabled
+      ? sandboxGpuProofStatusSuffix(sb.sandboxGpuProof)
+      : "";
     const openshellDriver = sb.openshellDriver || "unknown";
     const openshellVersion = sb.openshellVersion || "unknown";
     console.log(`    Host GPU: ${hostGpu}`);
-    console.log(`    Sandbox GPU: ${sandboxGpu}${sandboxGpuMode}${sandboxGpuDevice}`);
+    console.log(
+      `    Sandbox GPU: ${sandboxGpu}${sandboxGpuMode}${sandboxGpuDevice}${sandboxGpuProofSuffix}`,
+    );
+    if (sandboxGpuEnabled && sb.sandboxGpuProof?.status === "failed") {
+      const detail = sb.sandboxGpuProof.detail;
+      if (detail) console.log(`      ${detail}`);
+      console.log(
+        "      CUDA failed a live proof. Recreate with corrected GPU device/group access, or rerun onboard with --no-gpu.",
+      );
+    } else if (sandboxGpuEnabled && sandboxGpuProofUnverified(sb.sandboxGpuProof)) {
+      console.log(
+        "      CUDA usability has not been proven. Rerun onboard to verify, or use --no-gpu for CPU.",
+      );
+    }
     console.log(`    OpenShell: ${openshellVersion} (${openshellDriver})`);
     console.log(`    Policies: ${(sb.policies || []).join(", ") || "none"}`);
 
